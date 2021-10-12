@@ -1,0 +1,346 @@
+---
+title: "`r sprintf('Retail Transactions: Monthly Report for Month %s', params$report_month)`"
+author: "Christian Wiloejo"
+output: html_document
+params: 
+  report_month: 1
+  views_file_path: 'views -- January 2020.csv'
+  transactions_file_path: 'transactions -- January 2020.csv'
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+library(Hmisc)
+library(rmarkdown)
+```
+
+```{r constants}
+# These constants need to be changed for automatic reporting in another R file
+report_month = params$report_month
+main_path = '../data and templates/'
+views_file_path = params$views_file_path
+transactions_file_path = params$transactions_file_path
+```
+
+```{r functions}
+round.numerics <- function(x, digits){
+  if(is.numeric(x)){
+    x <- round(x = x, digits = digits)
+  }
+  return(x)
+}
+
+#q1
+first_week_most_viewed_products_category = function(dat, topN){
+  # Extract day and filter for first week
+  dat[, day:= as.integer(format(time, format = "%d"))]
+  dat = dat[day <= 7]
+  
+  # Get result with group by and count 
+  result = dat[,.(count_views = .N),by=.(product_id, category)][order(count_views, decreasing = TRUE)][1:topN]
+  
+  return(result)
+}
+
+#q2
+month_most_viewed_products = function(dat, category_selected, topN){
+  dat = dat[category == category_selected]
+  result = dat[,.(count_views = .N),by=.(product_id)][order(count_views, decreasing = TRUE)][1:topN]
+  
+  return(result)
+}
+
+#q3
+month_revenue_by_category = function(dat){
+  dat[,revenue := price*quantity]
+  result = dat[, .(total_revenue = sum(revenue)), by=category][order(total_revenue, decreasing = T)]
+  
+  return(result)
+}
+
+#q4
+summary_month_customer_purchase = function(dat){
+  # Customers with one transaction is equal to transaction data
+  dat[,month := as.integer(format(time, "%m"))]
+  # Calculate total spending per row
+  dat[,purchase_total:=price*quantity]
+  # Average, median, and standard deviation of the customers' monthly spending
+  result = dat[,.(mean_purchase = mean(purchase_total),
+                         median_purchase = median(purchase_total),
+                         std_purchase = sd(purchase_total)
+                         ), by = .(month)]
+  return(result)
+}
+
+#q5
+pct_dist_spending_by_gender = function(transactions_dat){
+  result = transactions_dat[, .(revenue = sum(revenue)), by=gender]
+  result[, percentage_distribution :=  revenue/sum(revenue)]
+  return(result)
+}
+
+#q8 
+summary_nunique_products_viewed_per_customer = function(dat){
+  # Cut to age groups
+  dat[,age_group:=cut2(dat$age, cuts = c(18,35,50,65, max(dat$age)+1))]
+  # Find unique customer and product; then count the unique products they viweed
+  unique_products_viewed = unique(dat[,c("customer_id", "product_id", "age_group")])
+  unique_products_viewed = unique_products_viewed[,.(number_unique_products_viewed = .N),by=.(customer_id, age_group)]
+  
+  # Compute stats summary result by age group
+  result = unique_products_viewed[, .(mean_unique_products_viewed = mean(number_unique_products_viewed), 
+                             median_unique_products_viewed = median(number_unique_products_viewed), 
+                             std_unique_products_viewed = sd(number_unique_products_viewed))
+                         ,by = .(age_group)]
+  # Sort by age group
+  result = result[order(age_group, decreasing = F)]
+  
+  return(result)
+}
+
+#q9
+correlation_total_views_total_spending  = function(views_dat, transactions_dat){
+  # Compute total views and total spending 
+  total_page_views_per_customer = views_dat[, .(total_views = .N), by = customer_id]
+  total_spending_per_customer = transactions_dat[,.(total_spending = sum(revenue)), by = customer_id]
+  # Left join total spending to total views 
+  dat = merge(total_page_views_per_customer, total_spending_per_customer, by = 'customer_id', all.x = T)
+  # Spending = 0 for customers who viewed but didn't purchase
+  dat[is.na(total_spending), total_spending := 0]
+  # Compute correlation
+  result = cor(dat$total_views, dat$total_spending)
+  
+  return(result)
+}
+
+#q10
+largest_coat_purchase = function(transactions_data){
+  just_coats_transactions = transactions_data[category == 'coat', .(product_id, customer_id, category)]
+  coats_purchase_per_customer = just_coats_transactions[,.(coats_purchased = .N),by=customer_id]
+  max_coats_purchased = max(coats_purchase_per_customer$coats_purchased)
+  result = coats_purchase_per_customer[coats_purchased == max_coats_purchased]
+  return(result)
+}
+
+```
+
+```{r load_data}
+# Load raw data
+customers_dt = fread(paste0(main_path, 'customers.csv'))
+products_dt = fread(paste0(main_path, 'products.csv'))
+
+views_dt = fread(paste0(main_path, views_file_path))
+transactions_dt = fread(paste0(main_path, transactions_file_path))
+```
+
+```{r explore_data, eval = FALSE}
+```
+
+
+```{r clean_data}
+# Data Type Handling
+views_dt[, time := as.POSIXct(time, format = "%Y-%m-%dT%H:%M:%S", tz = 'UTC')]
+customers_dt[, gender := as.factor(gender)]
+customers_dt[, region := as.factor(region)]
+products_dt[, category := as.factor(category)]
+
+# Remove following month's data in current month's dataset (example: February data in January data or March data in February dataset)
+transactions_dt[, month := as.integer(format(time, '%m'))]
+transactions_dt = transactions_dt[month == report_month]
+
+views_dt[, month := as.integer(format(time, '%m'))]
+views_dt = views_dt[month == as.name(params$report_month)]
+
+# Joins each views and transactions to customers and products data
+views_full_dat = merge(x = views_dt, y = customers_dt, by = 'customer_id', all.x = TRUE)
+views_full_dat = merge(x = views_full_dat, y = products_dt, by = 'product_id', all.x = TRUE)
+transactions_full_dat = merge(x = transactions_dt, y = customers_dt, by = 'customer_id', all.x = TRUE)
+transactions_full_dat = merge(x = transactions_full_dat, y = products_dt, by = 'product_id', all.x = TRUE)
+
+# Check if price data in transactions are equal
+if (mean(transactions_full_dat$price.x == transactions_full_dat$price.y) == 1){
+  # print("Price data is equal")
+  # Removing duplicate columns in transactions data and renaming
+  transactions_full_dat[,price.y := NULL]
+  setnames(transactions_full_dat, "price.x", "price")
+
+} else {
+  print("Price data is not equal. Proceed but double check why that is")
+}
+
+```
+
+
+
+## Part 2:  Specific Questions {.tabset}
+
+This part of the report will be directed to product managers throughout the client's company.  The idea is to give them the useful information they need to act on the specific questions they posed.  Plan your communication accordingly.
+
+For this report, make sure to use all of the data that was provided to you for the month.  If you do note any issues with the data (Part 3), this can be reported to the engineering team for them to resolve.
+
+### Q1
+
+#### Question
+
+During the first week of the month, what were the 10 most viewed products?  Show the results in a table with the product's identifier, category, and count of the number of views.
+
+#### Answer
+
+```{r part2_q1}
+datatable(first_week_most_viewed_products_category(views_full_dat, 10))
+```
+
+
+### Q2
+
+#### Question
+
+During the whole month, what were the 10 most viewed products for each category?  Show the results in separate tables by category.  Including only the product's identifier and the count of the number of views.
+
+
+#### Answer {.tabset}
+##### Shirt
+
+```{r part2_q2_shirt}
+datatable(month_most_viewed_products(views_full_dat, "shirt", 10))
+```
+
+##### Pants
+
+```{r part2_q2_pants}
+datatable(month_most_viewed_products(views_full_dat, "pants", 10))
+```
+
+##### Coat
+
+```{r part2_q2_coat}
+datatable(month_most_viewed_products(views_full_dat, "coat", 10))
+```
+
+##### Shoes
+
+```{r part2_q2_shoes}
+datatable(month_most_viewed_products(views_full_dat, "shoes", 10))
+```
+
+##### Hat
+
+```{r part2_q2_hat}
+datatable(month_most_viewed_products(views_full_dat, "hat", 10))
+```
+
+
+### Q3
+
+#### Question
+
+What was the total revenue for each category of product during the month?  Show the results in a single table sorted in decreasing order.
+
+#### Answer
+
+```{r part2_q3}
+datatable(month_revenue_by_category(transactions_full_dat))
+```
+
+### Q4
+
+#### Question
+
+Among customers with at least one transaction, show the average, median, and standard deviation of the customers' monthly spending on the site.
+
+#### Answer
+
+```{r part2_q4}
+datatable(summary_month_customer_purchase(transactions_full_dat))
+```
+
+### Q5
+
+#### Question
+
+What is the percentage distribution of spending by gender?  Show the amount of revenue and the percentage.
+
+#### Answer
+
+```{r part2_q5}
+datatable(pct_dist_spending_by_gender(transactions_full_dat))
+```
+
+### Q6
+
+#### Question
+
+Using linear regression, what is the effect of an extra ten thousand dollars of income on monthly spending for a customer while adjusting for age, gender, and region?
+
+#### Answer
+
+```{r part2_q6}
+linear_model = summary(lm(revenue ~ income+age+gender+region, data = transactions_full_dat))
+coefs = linear_model$coefficients
+print(paste0("While holding age, gender, and region, every extra ten thousand dollars of income would increase spending for a customer by $", round.numerics(coefs[2,1]*10000,2)))
+```
+
+
+### Q7
+
+#### Question
+
+Among customers who viewed at least 1 product, how many had at least one purchase during the month?  Show the total number and as a percentage of the users with a view.
+
+#### Answer
+
+```{r part2_q7}
+numerator = length(unique(views_full_dat[customer_id %in% unique(transactions_full_dat$customer_id)]$customer_id))
+denominator = length(unique(views_full_dat$customer_id))
+
+print(paste0("The total number of those who viewed at least 1 product and purchased during the month is ", numerator, " which is ", round.numerics((numerator/denominator)*100,2), "% of the users with a view"))
+```
+
+### Q8
+
+#### Question
+
+Now let's look at the viewing habits in different age groups, including 18-34, 35-49, 50-64, and 65+.  Within each group, what were the mean, median, and standard deviation for the number of unique products viewed per customer?
+
+#### Answer
+
+```{r part2_q8}
+datatable(summary_nunique_products_viewed_per_customer(views_full_dat))
+```
+
+
+### Q9 
+
+#### Question
+
+What is the correlation between a user's total page views and total spending?  For customers without a transaction, include their spending as zero.
+
+#### Answer
+
+```{r part2_q9}
+datatable(transactions_full_dat)
+```
+```{r}
+print(paste0("The correlation between user's total views and total spending is ", round.numerics(correlation_total_views_total_spending(views_full_dat, transactions_full_dat),2)))
+```
+
+### Q10
+
+#### Question
+
+Which customer purchased the largest number of coats?  In the event of a tie, include all of the users who reached this value.  Show their identifiers and total volume.
+
+#### Answer
+
+```{r part2_q10}
+datatable(largest_coat_purchase(transactions_full_dat))
+```
+

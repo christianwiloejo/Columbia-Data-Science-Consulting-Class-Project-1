@@ -1,0 +1,185 @@
+---
+title: "Retail Transactions:  Extensions and Opportunities"
+author: "Christian Wiloejo"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Import Packages
+```{r}
+# Clear environment
+rm(list = ls())
+require(data.table)
+require(ggplot2)
+```
+
+## Part 1:  Summary {.tabset}
+How would you summarize the data? For each table, write 2-4 sentences with relevant information. Briefly describe what is measured in the data and provide a summary of the information. You can show a table or graphic, but keep things brief.
+
+This part of the report will be directed to your internal team at the consulting company. It is intended to document the sources of information that were used in the project. It will also describe the data in less technical terms to team members who are not data scientists. If another member of the team joins the project later, they will rely on your descriptions to gain familiarity with the data.  To that end, we recommend providing some instructions that will help other consultants use the information more effectively.
+
+See the following for further instructions:
+
+### Customers
+The customers table contain 100,000 rows and 5 columns. As we can see from the summary below, we see an approximately equal representation of customer count in both genders  (around 50000 customers from each gender) as well as all regions (around 25000 customers from each region). Additionally, customers from the Northeast region have higher average income, followed by customers from the West, Midwest and South region.
+
+#### Customers: Raw View and Data Type Handling
+```{r customers}
+customers_dt = fread('../data and templates/customers.csv')
+customers_dt = customers_dt[, lapply(.SD, as.factor), by = .(customer_id, age, income)]
+head(customers_dt)
+```
+
+#### Customers: Summary Statistics and Mean Income by Region
+
+```{r}
+summary(customers_dt)
+```
+
+```{r}
+customers_dt[,.(mean_income = mean(income)),by=region]
+```
+
+
+### Products
+Our client carries 8637 product and store basic information about each product such as product_id, price and category. On average, the coat category's price point is the highest, followed by shoes, shirt, pants and hat.
+
+#### Products: Raw View and Data Type Handling
+```{r products}
+products_dt = fread('../data and templates/products.csv')
+products_dt = products_dt[, lapply(.SD, as.factor), by = .(product_id, price)]
+head(products_dt)
+```
+#### Products: Summary Statistics and Boxplot of Price and Category
+```{r}
+summary(products_dt)
+```
+ 
+```{r}
+ggplot(products_dt, aes(y = price, col = category)) + 
+  geom_boxplot()
+```
+
+### Views
+The views table has a total of 4,474,131 records. It is naturally large because it tracks then **when** every customer's view for each product. Note to internal team: the 'Z' under time column represents the UTC timezone. We need to use 'UTC' in the tz parameter inside as.POSIXct().
+
+#### Views: Raw View and Data Type Handling
+```{r views}
+views_dt = fread('../data and templates/views -- January 2020.csv')
+views_dt[, time := as.POSIXct(time, format = "%Y-%m-%dT%H:%M:%S", tz = 'UTC')]
+head(views_dt)
+
+```
+#### Views: Summary Statistics 
+```{r}
+summary(views_dt)
+```
+
+### Transactions
+The transactions table tracks the product, price, quantity, and time of when a customer purchases a product. From the 119,287 transactions, as we can see from the plot below, most customers transact 10 or less times.
+
+#### Transactions: Raw View and Data Type Handling
+```{r transactions}
+transactions_dt = fread('../data and templates/transactions -- January 2020.csv')
+head(transactions_dt)
+
+```
+#### Transactions: Summary Statistics 
+```{r}
+summary(transactions_dt)
+```
+
+```{r}
+transactions_per_customer = transactions_dt[, .(count_of_transactions = .N), by = customer_id][order(count_of_transactions, decreasing = TRUE)]
+transactions_per_customer
+```
+```{r}
+ggplot(transactions_per_customer, aes(count_of_transactions)) + 
+  geom_bar() + 
+  xlim(0,50)
+```
+
+## Part 3:  Generalization {.tabset}
+
+This part of the report will be directed internally to your team's engagement manager.  The idea is to present these approaches to your team.  The work will then be conveyed to the client's technical team and middle managers who are working closely with you on the project.  Plan your communication accordingly.
+
+### Q1 
+
+#### Question
+
+Did you see any problems with the data set?  If so, whom would you report them to, and what would you do to address them?  What would be different about the next version of the data?
+
+#### Answer
+Yes, the transactions and views data sets' time column were not correctly segregated based on their file names. For example, I could see March data in the February views and transactions data sets as well as February data points in the January views and transactions data sets. I would report to the data engineers, who typically are the ones who supply data to the data scientist team. For next version of the data, I would have a separate data integrity checker file; if the data quality doesn't pass that my checker file, I would immediately get back to the data engineers warning them about the matter. 
+
+### Q2
+
+#### Question
+
+Now generate a version of the same report using the data on views and transactions from the month of February 2020.
+
+In building this report, do not create a new RMarkdown file.  Instead, build a small .R file that allows the user to specify some parameters (e.g. the names of the files).  Then use the **render** function in the **rmarkdown** library to run the report.  Supply these new parameters as a list object in the **params** input.  Then you can make use of these parameters within the RMarkdown file.  For instance, if your file name is **"views -- January 2020.csv"** and it is stored as params\$views.file, then you can read the data with **fread(input = params\$views.file)**
+
+Use the **dir.create** function to build new subfolders to store each month's report.  Specify a name for the output file when calling the **render** function.  Use this method to generate the separate reports for January and February.
+
+Briefly describe your process for implemeting this automated approach.  What work would a non-technical user need to perform to run this script without your involvement?
+
+
+#### Answer
+This is done in a separate .R file called "Christian Wiloejo Submission - Part 3"
+
+### Q3
+
+#### Question
+
+What are the advantages of creating an automated approach to routine reporting?
+
+#### Answers
+The advantage of automated approach to creating report is the fact that we, as analysts, don't have to go back to the details of the main processor script and can change a few parameters to obtain a full report on other time periods.
+
+
+## Part 4:  Opportunities {.tabset}
+
+This part of the report will be directed externally to your client's senior leadership.  Your work will help to determine the future direction of the project and the company's contract with this client.  Plan your communication accordingly.
+
+### Q1
+
+#### Question
+
+How would you build on the reporting capabilities that you have created?  What would you design next?
+
+#### Answer
+Building reporting capabilities: I would perform some more techniques to understand how spending capability (such as income) would increase or decrease spending. In the January data (part 2 question 6), I noticed that all independent variables are not statistically significant. I would dig deeper as to why this may have happened; perhaps, dropping some variables (from the age, gender and region variables) using dimensionality reduction will get us to something more meaningful. 
+
+Next design: I would perform clustering and time series analysis as well as other prediction techniques (i.e. RandomForest, XGBoost, or Neural Network) on the data sets provided to see if there is any more meaningful insights that we could derive. 
+
+
+### Q2
+
+#### Question
+
+What are some opportunities to learn valuable information and inform strategic decisions?  List a number of questions that you might explore.
+
+#### Answer
+With the next design under Q1 in mind, I believe those additional analyses could help answer questions like "is there a pattern as to **when** customers like to spend the most? If yes, why?", "can we cluster our customers to 3 clusters such as high spender, medium spender and low spender, while taking into account their gender and age?" or "can we better predict how much each customer is willing to spend using non-linear algorithms?"
+
+### Q3
+
+#### Question
+
+How would you approach other decision makers within the client's organization to assess their priorities and help them better utilize the available information?
+
+
+#### Answer
+If there is a clear pattern as to **when** most customers like to spend the most money, I would direct the decision maker's attention toward those days or time of day the when most customers like to spend the most money. Perhaps, by looking deeper as to why customers like to shop at certain days or time of day, the client organization could create marketing or sales programs to boost even more sales.
+
+If there is a relatively low RMSE for the non-linear algorithms in predicting spending, I would generate feature importance plot to show the client which factors variables in the data contribute the most to predicting spending. For example, if we know that the gender male plays the most important role in explaining high spending, then I would direct the decision maker's attention to focusing the brand towards male.
+
+
+
+### Q4
+
+**Video Submission**:  Make a 2-minute pitch to the client with a proposal for the next phase of work.  Include in your request a budget, a time frame, and staffing levels.  Explain why this proposal would be valuable for the client and worth the investment in your consulting services.  Please submit this answer as a short video recording. You may use any video recording program you feel comfortable with. The only requirements are that you are visible and audible in the video.  You may also submit a file of slides if that is part of your pitch.
